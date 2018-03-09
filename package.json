@@ -1,0 +1,19 @@
+{
+    "name": "node-isotp",
+    "version": "1.0.0",
+    "description": "",
+    "main": "lib/isotp.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "build": "node-gyp rebuild",
+        "start": "node index.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "nan": "^2.9.2",
+        "node-gyp": "^3.6.2"
+    },
+    "gypfile": true
+}

@@ -57,3 +57,8 @@ typings/
 # dotenv environment variables file
 .env
 
+# node-gyp binary directory
+build/
+
+# Visual Studio Code workspace settings
+.vscode/
