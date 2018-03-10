@@ -13,7 +13,8 @@
     "license": "ISC",
     "dependencies": {
         "nan": "^2.9.2",
-        "node-gyp": "^3.6.2"
+        "node-gyp": "^3.6.2",
+        "promise-defer": "^1.0.0"
     },
     "gypfile": true
 }
