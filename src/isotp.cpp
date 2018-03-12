@@ -21,21 +21,42 @@ IsoTpSocket::IsoTpSocket(v8::Local<v8::Function> onError,
         perror("socket error");
     }
 
-    // set socket options
-    setsockopt(socket_, SOL_CAN_ISOTP, CAN_ISOTP_OPTS, &m_opts, sizeof(m_opts));
-    setsockopt(socket_, SOL_CAN_ISOTP, CAN_ISOTP_RECV_FC, &m_fcopts, sizeof(m_fcopts));
+    // printf("socket() = %d\n", socket_);
+
+    // initialize socket options
+    m_opts = new can_isotp_options;
+    memset(m_opts, 0, sizeof(can_isotp_options));
+    m_fcopts = new can_isotp_fc_options;
+    memset(m_fcopts, 0, sizeof(can_isotp_fc_options));
 
     // set nonblocking mode
     int flags = fcntl(socket_, F_GETFL, 0);
     fcntl(socket_, F_SETFL, flags | O_NONBLOCK);
 
-    m_recvBuffer = new isotp_frame;
+    // initialize send and recv buffers
     m_sendBuffer = new isotp_frame;
+    memset(m_sendBuffer, 0, sizeof(isotp_frame));
+    m_recvBuffer = new isotp_frame;
+    memset(m_recvBuffer, 0, sizeof(isotp_frame));
 
     poll_ = new uv_poll_t;
     int initRet = uv_poll_init_socket(uv_default_loop(), poll_, socket_);
-    printf("initRet = %d\n", initRet);
+    if (initRet)
+    {
+        perror("uv_poll_init_socket error");
+    }
+    // printf("initRet = %d\n", initRet);
     poll_->data = this;
+}
+
+IsoTpSocket::~IsoTpSocket()
+{
+    printf("DESTROY ME, DADDY!\n");
+    delete m_opts;
+    delete m_fcopts;
+    delete m_recvBuffer;
+    delete m_sendBuffer;
+    delete poll_;
 }
 
 void IsoTpSocket::Initialize(Local<Object> exports)
@@ -48,9 +69,11 @@ void IsoTpSocket::Initialize(Local<Object> exports)
     t->InstanceTemplate()->SetInternalFieldCount(1);
 
     Nan::SetPrototypeMethod(t, "bind", IsoTpSocket::Bind);
+    Nan::SetPrototypeMethod(t, "setOptions", IsoTpSocket::SetOptions);
     Nan::SetPrototypeMethod(t, "start", IsoTpSocket::Start);
     Nan::SetPrototypeMethod(t, "close", IsoTpSocket::Close);
     Nan::SetPrototypeMethod(t, "send", IsoTpSocket::Send);
+    Nan::SetPrototypeMethod(t, "address", IsoTpSocket::GetAddress);
 
     constructor.Reset(t->GetFunction());
     exports->Set(Nan::New("IsoTpSocket").ToLocalChecked(), t->GetFunction());
@@ -221,6 +244,10 @@ void IsoTpSocket::Bind(const Nan::FunctionCallbackInfo<Value> &args)
         canAddr.can_addr.tp.tx_id = tx_id;
         canAddr.can_addr.tp.rx_id = rx_id;
 
+        // set socket options
+        setsockopt(self->socket_, SOL_CAN_ISOTP, CAN_ISOTP_OPTS, self->m_opts, sizeof(can_isotp_options));
+        setsockopt(self->socket_, SOL_CAN_ISOTP, CAN_ISOTP_RECV_FC, self->m_fcopts, sizeof(can_isotp_fc_options));
+
         err = bind(self->socket_, reinterpret_cast<struct sockaddr *>(&canAddr),
                    sizeof(canAddr));
     }
@@ -230,6 +257,51 @@ void IsoTpSocket::Bind(const Nan::FunctionCallbackInfo<Value> &args)
     self->events_ |= UV_READABLE;
 
     args.GetReturnValue().Set(err);
+}
+
+void IsoTpSocket::SetOptions(const Nan::FunctionCallbackInfo<Value> &args)
+{
+    Isolate *isolate = args.GetIsolate();
+    if (args.Length() < 1)
+    {
+        isolate->ThrowException(Exception::TypeError(
+            String::NewFromUtf8(isolate, "Wrong number of arguments")));
+        return;
+    }
+
+    if (!args[0]->IsObject()) // options
+    {
+        isolate->ThrowException(Exception::TypeError(
+            String::NewFromUtf8(isolate, "Invalid options object specified")));
+        return;
+    }
+
+    IsoTpSocket *self = Nan::ObjectWrap::Unwrap<IsoTpSocket>(args.Holder());
+    assert(self);
+
+    Local<Object> optionsObj = args[0]->ToObject();
+
+    if (optionsObj->Has(String::NewFromUtf8(isolate, "txPadding")))
+    {
+        Local<Value> txPadding = optionsObj->Get(String::NewFromUtf8(isolate, "txPadding"));
+
+        if (txPadding->IsBoolean())
+        {
+            if (txPadding->BooleanValue())
+                self->m_opts->flags |= CAN_ISOTP_TX_PADDING; // enable tx padding
+            else
+                self->m_opts->flags &= ~CAN_ISOTP_TX_PADDING; // disable tx padding
+
+            self->m_opts->txpad_content = 0x00; // pad with NULL bytes by default
+        }
+        else if (txPadding->IsNumber())
+        {
+            self->m_opts->flags |= CAN_ISOTP_TX_PADDING; // enable tx padding
+            self->m_opts->txpad_content = (uint8_t)txPadding->Uint32Value();
+        }
+        // printf("padding tx with 0x%x\n", self->m_opts->txpad_content);
+        // printf("has txPadding %d %d\n", txPadding->IsBoolean(), txPadding->IsNumber());
+    }
 }
 
 void IsoTpSocket::Start(const Nan::FunctionCallbackInfo<Value> &info)
@@ -269,11 +341,12 @@ void IsoTpSocket::CloseInternal()
     {
         uv_poll_stop(poll_);
 
+        CloseSocketInternal();
+
         uv_close(reinterpret_cast<uv_handle_t *>(poll_),
                  [](uv_handle_t *handle) {
                      auto *self = reinterpret_cast<IsoTpSocket *>(handle->data);
                      assert(!self->persistent().IsEmpty());
-                     self->CloseSocketInternal();
                      self->Unref();
                  });
     }
@@ -283,6 +356,7 @@ void IsoTpSocket::CloseSocketInternal()
 {
     if (!socket_)
         return;
+    // printf("close(socket_ = %d)\n", socket_);
     close(socket_);
     socket_ = 0;
 }
@@ -309,6 +383,34 @@ void IsoTpSocket::SendInternal(char *data, size_t length)
 
     events_ |= UV_WRITABLE;
     StartInternal();
+}
+
+void IsoTpSocket::GetAddress(const Nan::FunctionCallbackInfo<Value> &args)
+{
+    Isolate *isolate = args.GetIsolate();
+    IsoTpSocket *self = Nan::ObjectWrap::Unwrap<IsoTpSocket>(args.Holder());
+    assert(self);
+
+    if (!self->socket_)
+    {
+        args.GetReturnValue().Set(Nan::Null());
+        return;
+    }
+
+    sockaddr_can canAddr;
+    socklen_t len = sizeof(canAddr);
+    if (getsockname(self->socket_, (struct sockaddr *)&canAddr, &len) < 0)
+    {
+        perror("getsockname");
+        return;
+    }
+
+    // printf("tx_id=%d rx_id=%d\n", canAddr.can_addr.tp.tx_id, canAddr.can_addr.tp.rx_id);
+
+    Local<Object> addrObj = Object::New(isolate);
+    addrObj->Set(String::NewFromUtf8(isolate, "tx"), Integer::New(isolate, (int)canAddr.can_addr.tp.tx_id));
+    addrObj->Set(String::NewFromUtf8(isolate, "rx"), Integer::New(isolate, (int)canAddr.can_addr.tp.rx_id));
+    args.GetReturnValue().Set(addrObj);
 }
 
 void IsoTpSocket::CallbackOnError(int err)

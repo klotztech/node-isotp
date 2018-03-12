@@ -31,6 +31,7 @@ class IsoTpSocket : public Nan::ObjectWrap
     IsoTpSocket(v8::Local<v8::Function> onError,
                 v8::Local<v8::Function> onMessage,
                 v8::Local<v8::Function> onSent);
+    ~IsoTpSocket();
 
     static void Initialize(Local<Object> exports);
 
@@ -43,8 +44,8 @@ class IsoTpSocket : public Nan::ObjectWrap
     struct can_isotp_options *m_opts;
     struct can_isotp_fc_options *m_fcopts;
 
-    isotp_frame *m_recvBuffer;
     isotp_frame *m_sendBuffer;
+    isotp_frame *m_recvBuffer;
 
     Nan::Callback m_errorCallback;
     Nan::Callback m_messageCallback;
@@ -52,9 +53,12 @@ class IsoTpSocket : public Nan::ObjectWrap
 
     static void New(const Nan::FunctionCallbackInfo<Value> &info);
     static void Bind(const Nan::FunctionCallbackInfo<Value> &info);
+    static void SetOptions(const Nan::FunctionCallbackInfo<Value> &info);
     static void Start(const Nan::FunctionCallbackInfo<Value> &info);
     static void Close(const Nan::FunctionCallbackInfo<Value> &info);
     static void Send(const Nan::FunctionCallbackInfo<Value> &info);
+
+    static void GetAddress(const Nan::FunctionCallbackInfo<Value> &info);
 
     static void Callback(uv_poll_t *w, int status, int revents);
     void StartInternal();
