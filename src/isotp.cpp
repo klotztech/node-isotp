@@ -51,7 +51,7 @@ IsoTpSocket::IsoTpSocket(v8::Local<v8::Function> onError,
 
 IsoTpSocket::~IsoTpSocket()
 {
-    printf("DESTROY ME, DADDY!\n");
+    // printf("DESTROY ME, DADDY!\n");
     delete m_opts;
     delete m_fcopts;
     delete m_recvBuffer;
@@ -161,7 +161,7 @@ void IsoTpSocket::Callback(uv_poll_t *w, int status, int revents)
                 self->StartInternal();
             }
 
-            printf("send err=%d\n", err);
+            // printf("send err=%d\n", err);
             self->CallbackOnSent(0);
         }
         else if (revents & UV_READABLE)
@@ -175,7 +175,7 @@ void IsoTpSocket::Callback(uv_poll_t *w, int status, int revents)
             }
             else
             {
-                printf("recv %d\n", err);
+                // printf("recv %d\n", err);
                 self->m_recvBuffer->length = recvBytes;
                 self->CallbackOnMessage(self->m_recvBuffer);
             }
@@ -183,7 +183,7 @@ void IsoTpSocket::Callback(uv_poll_t *w, int status, int revents)
     }
     else
     {
-        printf("poll returned %d\n", status);
+        // printf("poll returned %d\n", status);
         self->CallbackOnError(status);
     }
 
@@ -379,7 +379,7 @@ void IsoTpSocket::SendInternal(char *data, size_t length)
     m_sendBuffer->length = length;
     std::copy_n(data, length, std::begin(m_sendBuffer->data));
 
-    printf("send internal len=%d\n", length);
+    // printf("send internal len=%d\n", length);
 
     events_ |= UV_WRITABLE;
     StartInternal();
